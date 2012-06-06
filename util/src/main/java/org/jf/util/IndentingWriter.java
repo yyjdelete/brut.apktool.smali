@@ -148,7 +148,7 @@ public class IndentingWriter extends Writer {
         //}
     }
 
-    public void printLongAsHex(long value) throws IOException {
+    public void printUnsignedLongAsHex(long value) throws IOException {
         int bufferIndex = 0;
         do {
             int digit = (int)(value & 15);
@@ -166,9 +166,13 @@ public class IndentingWriter extends Writer {
         }
     }
 
-    public void printIntAsDec(int value) throws IOException {
+    public void printSignedIntAsDec(int value) throws IOException {
         int bufferIndex = 0;
-        boolean negative = value < 0;
+
+        if (value < 0) {
+            value *= -1;
+            write('-');
+        }
 
         do {
             int digit = value % 10;
@@ -176,10 +180,6 @@ public class IndentingWriter extends Writer {
 
             value = value / 10;
         } while (value != 0);
-
-        if (negative) {
-            write('-');
-        }
 
         while (bufferIndex>0) {
             write(buffer[--bufferIndex]);

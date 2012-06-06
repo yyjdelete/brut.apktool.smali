@@ -253,7 +253,7 @@ fields returns[List<ClassDataItem.EncodedField> staticFields, List<ClassDataItem
 	{
 		$staticFields = new LinkedList<ClassDataItem.EncodedField>();
 		$instanceFields = new LinkedList<ClassDataItem.EncodedField>();
-		$staticFieldInitialValues = new LinkedList<ClassDefItem.StaticFieldInitializer>();
+		$staticFieldInitialValues = new ArrayList<ClassDefItem.StaticFieldInitializer>();
 	}
 	:	^(I_FIELDS
 			(field
@@ -361,14 +361,14 @@ literal returns[EncodedValue encodedValue]
 
 //everything but string
 fixed_size_literal returns[byte[\] value]
-	:	integer_literal { $value = literalTools.intToBytes($integer_literal.value); }
-	|	long_literal { $value = literalTools.longToBytes($long_literal.value); }
-	|	short_literal { $value = literalTools.shortToBytes($short_literal.value); }
+	:	integer_literal { $value = LiteralTools.intToBytes($integer_literal.value); }
+	|	long_literal { $value = LiteralTools.longToBytes($long_literal.value); }
+	|	short_literal { $value = LiteralTools.shortToBytes($short_literal.value); }
 	|	byte_literal { $value = new byte[] { $byte_literal.value }; }
-	|	float_literal { $value = literalTools.floatToBytes($float_literal.value); }
-	|	double_literal { $value = literalTools.doubleToBytes($double_literal.value); }
-	|	char_literal { $value = literalTools.charToBytes($char_literal.value); }
-	|	bool_literal { $value = literalTools.boolToBytes($bool_literal.value); };
+	|	float_literal { $value = LiteralTools.floatToBytes($float_literal.value); }
+	|	double_literal { $value = LiteralTools.doubleToBytes($double_literal.value); }
+	|	char_literal { $value = LiteralTools.charToBytes($char_literal.value); }
+	|	bool_literal { $value = LiteralTools.boolToBytes($bool_literal.value); };
 
 //everything but string
 fixed_64bit_literal returns[long value]
@@ -385,7 +385,7 @@ fixed_64bit_literal returns[long value]
 //long is allowed, but it must fit into an int
 fixed_32bit_literal returns[int value]
 	:	integer_literal { $value = $integer_literal.value; }
-	|	long_literal { literalTools.checkInt($long_literal.value); $value = (int)$long_literal.value; }
+	|	long_literal { LiteralTools.checkInt($long_literal.value); $value = (int)$long_literal.value; }
 	|	short_literal { $value = $short_literal.value; }
 	|	byte_literal { $value = $byte_literal.value; }
 	|	float_literal { $value = Float.floatToRawIntBits($float_literal.value); }
@@ -867,7 +867,7 @@ offset	returns[int offsetValue]
 			if (offsetText.charAt(0) == '+') {
 				offsetText = offsetText.substring(1);
 			}
-			$offsetValue = literalTools.parseInt(offsetText);
+			$offsetValue = LiteralTools.parseInt(offsetText);
 		};
 
 offset_or_label_absolute[int baseAddress] returns[int address]
@@ -895,24 +895,46 @@ register_list[int totalMethodRegisters, int methodParameterRegisters] returns[by
 			})*);
 
 register_range[int totalMethodRegisters, int methodParameterRegisters] returns[int startRegister, int endRegister]
-	:	^(I_REGISTER_RANGE startReg=REGISTER endReg=REGISTER?)
+	:	^(I_REGISTER_RANGE (startReg=REGISTER endReg=REGISTER?)?)
 		{
-			$startRegister  = parseRegister_short($startReg.text, $totalMethodRegisters, $methodParameterRegisters);
-			if ($endReg == null) {
-				$endRegister = $startRegister;
-			} else {
-				$endRegister = parseRegister_short($endReg.text, $totalMethodRegisters, $methodParameterRegisters);
-			}
+		    if ($startReg == null) {
+		        $startRegister = 0;
+		        $endRegister = -1;
+		    } else {
+                $startRegister  = parseRegister_short($startReg.text, $totalMethodRegisters, $methodParameterRegisters);
+                if ($endReg == null) {
+                    $endRegister = $startRegister;
+                } else {
+                    $endRegister = parseRegister_short($endReg.text, $totalMethodRegisters, $methodParameterRegisters);
+                }
 
-			int registerCount = $endRegister-$startRegister+1;
-			if (registerCount > 256) {
-				throw new SemanticException(input, $I_REGISTER_RANGE, "A register range can span a maximum of 256 registers");
-			}
-			if (registerCount < 1) {
-				throw new SemanticException(input, $I_REGISTER_RANGE, "A register range must have the lower register listed first");
-			}
+                int registerCount = $endRegister-$startRegister+1;
+                if (registerCount < 1) {
+                    throw new SemanticException(input, $I_REGISTER_RANGE, "A register range must have the lower register listed first");
+                }
+            }
 		}
 	;
+
+verification_error_reference returns[Item item]
+	:	CLASS_DESCRIPTOR
+	{
+		$item = TypeIdItem.internTypeIdItem(dexFile, $start.getText());
+	}
+	|	fully_qualified_field
+	{
+		$item = $fully_qualified_field.fieldIdItem;
+	}
+	|	fully_qualified_method
+	{
+		$item = $fully_qualified_method.methodIdItem;
+	};
+
+verification_error_type returns[VerificationErrorType verificationErrorType]
+	:	VERIFICATION_ERROR_TYPE
+	{
+		$verificationErrorType = VerificationErrorType.fromString($VERIFICATION_ERROR_TYPE.text);
+	};
 
 instruction[int totalMethodRegisters, int methodParameterRegisters, List<Instruction> instructions] returns[int outRegisters]
 	:	//e.g. goto endloop:
@@ -938,7 +960,7 @@ instruction[int totalMethodRegisters, int methodParameterRegisters, List<Instruc
 			byte regA = parseRegister_nibble($REGISTER.text, $totalMethodRegisters, $methodParameterRegisters);
 
 			short litB = $short_integral_literal.value;
-			literalTools.checkNibble(litB);
+			LiteralTools.checkNibble(litB);
 
 			$instructions.add(new Instruction11n(opcode, regA, (byte)litB));
 		}
@@ -959,6 +981,16 @@ instruction[int totalMethodRegisters, int methodParameterRegisters, List<Instruc
 
 			$instructions.add(new Instruction12x(opcode, regA, regB));
 		}
+	|	//e.g. throw-verification-error generic-error, Lsome/class;
+		^(I_STATEMENT_FORMAT20bc INSTRUCTION_FORMAT20bc verification_error_type verification_error_reference)
+		{
+			Opcode opcode = Opcode.getOpcodeByName($INSTRUCTION_FORMAT20bc.text);
+
+			VerificationErrorType verificationErrorType = $verification_error_type.verificationErrorType;
+			Item referencedItem = $verification_error_reference.item;
+
+			$instructions.add(new Instruction20bc(opcode, verificationErrorType, referencedItem));
+		}
 	|	//e.g. goto/16 endloop:
 		^(I_STATEMENT_FORMAT20t INSTRUCTION_FORMAT20t offset_or_label)
 		{
@@ -968,17 +1000,17 @@ instruction[int totalMethodRegisters, int methodParameterRegisters, List<Instruc
 
 			$instructions.add(new Instruction20t(opcode, addressOffset));
 		}
-	|	//e.g. sget_object v0 java/lang/System/out LJava/io/PrintStream;
-		^(I_STATEMENT_FORMAT21c_FIELD INSTRUCTION_FORMAT21c_FIELD REGISTER fully_qualified_field)
+	|	//e.g. sget_object v0, java/lang/System/out LJava/io/PrintStream;
+		^(I_STATEMENT_FORMAT21c_FIELD inst=(INSTRUCTION_FORMAT21c_FIELD | INSTRUCTION_FORMAT21c_FIELD_ODEX) REGISTER fully_qualified_field)
 		{
-			Opcode opcode = Opcode.getOpcodeByName($INSTRUCTION_FORMAT21c_FIELD.text);
+			Opcode opcode = Opcode.getOpcodeByName($inst.text);
 			short regA = parseRegister_byte($REGISTER.text, $totalMethodRegisters, $methodParameterRegisters);
 
 			FieldIdItem fieldIdItem = $fully_qualified_field.fieldIdItem;
 
 			$instructions.add(new Instruction21c(opcode, regA, fieldIdItem));
 		}
-	|	//e.g. const-string v1 "Hello World!"
+	|	//e.g. const-string v1, "Hello World!"
 		^(I_STATEMENT_FORMAT21c_STRING INSTRUCTION_FORMAT21c_STRING REGISTER string_literal)
 		{
 			Opcode opcode = Opcode.getOpcodeByName($INSTRUCTION_FORMAT21c_STRING.text);
@@ -988,7 +1020,7 @@ instruction[int totalMethodRegisters, int methodParameterRegisters, List<Instruc
 
 			instructions.add(new Instruction21c(opcode, regA, stringIdItem));
 		}
-	|	//e.g. const-class v2 org/jf/HelloWorld2/HelloWorld2
+	|	//e.g. const-class v2, org/jf/HelloWorld2/HelloWorld2
 		^(I_STATEMENT_FORMAT21c_TYPE INSTRUCTION_FORMAT21c_TYPE REGISTER reference_type_descriptor)
 		{
 			Opcode opcode = Opcode.getOpcodeByName($INSTRUCTION_FORMAT21c_TYPE.text);
@@ -1040,14 +1072,14 @@ instruction[int totalMethodRegisters, int methodParameterRegisters, List<Instruc
 			short regB = parseRegister_byte($registerB.text, $totalMethodRegisters, $methodParameterRegisters);
 
 			short litC = $short_integral_literal.value;
-			literalTools.checkByte(litC);
+			LiteralTools.checkByte(litC);
 
 			$instructions.add(new Instruction22b(opcode, regA, regB, (byte)litC));
 		}
-	|	//e.g. iput-object v1 v0 org/jf/HelloWorld2/HelloWorld2.helloWorld Ljava/lang/String;
-		^(I_STATEMENT_FORMAT22c_FIELD INSTRUCTION_FORMAT22c_FIELD registerA=REGISTER registerB=REGISTER fully_qualified_field)
+	|	//e.g. iput-object v1, v0, org/jf/HelloWorld2/HelloWorld2.helloWorld Ljava/lang/String;
+		^(I_STATEMENT_FORMAT22c_FIELD inst=(INSTRUCTION_FORMAT22c_FIELD | INSTRUCTION_FORMAT22c_FIELD_ODEX) registerA=REGISTER registerB=REGISTER fully_qualified_field)
 		{
-			Opcode opcode = Opcode.getOpcodeByName($INSTRUCTION_FORMAT22c_FIELD.text);
+			Opcode opcode = Opcode.getOpcodeByName($inst.text);
 			byte regA = parseRegister_nibble($registerA.text, $totalMethodRegisters, $methodParameterRegisters);
 			byte regB = parseRegister_nibble($registerB.text, $totalMethodRegisters, $methodParameterRegisters);
 
@@ -1219,6 +1251,26 @@ instruction[int totalMethodRegisters, int methodParameterRegisters, List<Instruc
 
 			$instructions.add(new Instruction3rc(opcode, (short)registerCount, startRegister, typeIdItem));
 		}
+	|	//e.g. const-class/jumbo v2, org/jf/HelloWorld2/HelloWorld2
+		^(I_STATEMENT_FORMAT41c_TYPE INSTRUCTION_FORMAT41c_TYPE REGISTER reference_type_descriptor)
+		{
+			Opcode opcode = Opcode.getOpcodeByName($INSTRUCTION_FORMAT41c_TYPE.text);
+			int regA = parseRegister_short($REGISTER.text, $totalMethodRegisters, $methodParameterRegisters);
+
+			TypeIdItem typeIdItem = $reference_type_descriptor.type;
+
+			$instructions.add(new Instruction41c(opcode, regA, typeIdItem));
+		}
+	|	//e.g. sget-object/jumbo v0, Ljava/lang/System;->out:LJava/io/PrintStream;
+		^(I_STATEMENT_FORMAT41c_FIELD INSTRUCTION_FORMAT41c_FIELD REGISTER fully_qualified_field)
+		{
+			Opcode opcode = Opcode.getOpcodeByName($INSTRUCTION_FORMAT41c_FIELD.text);
+			int regA = parseRegister_short($REGISTER.text, $totalMethodRegisters, $methodParameterRegisters);
+
+			FieldIdItem fieldIdItem = $fully_qualified_field.fieldIdItem;
+
+			$instructions.add(new Instruction41c(opcode, regA, fieldIdItem));
+		}
 	|	//e.g. const-wide v0, 5000000000L
 		^(I_STATEMENT_FORMAT51l INSTRUCTION_FORMAT51l REGISTER fixed_64bit_literal)
 		{
@@ -1228,6 +1280,56 @@ instruction[int totalMethodRegisters, int methodParameterRegisters, List<Instruc
 			long litB = $fixed_64bit_literal.value;
 
 			$instructions.add(new Instruction51l(opcode, regA, litB));
+		}
+	|	//e.g. instance-of/jumbo v0, v1, Ljava/lang/String;
+		^(I_STATEMENT_FORMAT52c_TYPE INSTRUCTION_FORMAT52c_TYPE registerA=REGISTER registerB=REGISTER nonvoid_type_descriptor)
+		{
+			Opcode opcode = Opcode.getOpcodeByName($INSTRUCTION_FORMAT52c_TYPE.text);
+			int regA = parseRegister_short($registerA.text, $totalMethodRegisters, $methodParameterRegisters);
+			int regB = parseRegister_short($registerB.text, $totalMethodRegisters, $methodParameterRegisters);
+
+			TypeIdItem typeIdItem = $nonvoid_type_descriptor.type;
+
+			$instructions.add(new Instruction52c(opcode, regA, regB, typeIdItem));
+		}
+	|	//e.g. iput-object/jumbo v1, v0, Lorg/jf/HelloWorld2/HelloWorld2;->helloWorld:Ljava/lang/String;
+		^(I_STATEMENT_FORMAT52c_FIELD INSTRUCTION_FORMAT52c_FIELD registerA=REGISTER registerB=REGISTER fully_qualified_field)
+		{
+			Opcode opcode = Opcode.getOpcodeByName($INSTRUCTION_FORMAT52c_FIELD.text);
+			int regA = parseRegister_short($registerA.text, $totalMethodRegisters, $methodParameterRegisters);
+			int regB = parseRegister_short($registerB.text, $totalMethodRegisters, $methodParameterRegisters);
+
+			FieldIdItem fieldIdItem = $fully_qualified_field.fieldIdItem;
+
+			$instructions.add(new Instruction52c(opcode, regA, regB, fieldIdItem));
+		}
+	|	//e.g. invoke-virtual/jumbo {v25..v26} java/lang/StringBuilder/append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+		^(I_STATEMENT_FORMAT5rc_METHOD INSTRUCTION_FORMAT5rc_METHOD register_range[$totalMethodRegisters, $methodParameterRegisters] fully_qualified_method)
+		{
+			Opcode opcode = Opcode.getOpcodeByName($INSTRUCTION_FORMAT5rc_METHOD.text);
+			int startRegister = $register_range.startRegister;
+			int endRegister = $register_range.endRegister;
+
+			int registerCount = endRegister-startRegister+1;
+			$outRegisters = registerCount;
+
+			MethodIdItem methodIdItem = $fully_qualified_method.methodIdItem;
+
+			$instructions.add(new Instruction5rc(opcode, registerCount, startRegister, methodIdItem));
+		}
+	|	//e.g. filled-new-array/jumbo {v0..v6} I
+		^(I_STATEMENT_FORMAT5rc_TYPE INSTRUCTION_FORMAT5rc_TYPE register_range[$totalMethodRegisters, $methodParameterRegisters] nonvoid_type_descriptor)
+		{
+			Opcode opcode = Opcode.getOpcodeByName($INSTRUCTION_FORMAT5rc_TYPE.text);
+			int startRegister = $register_range.startRegister;
+			int endRegister = $register_range.endRegister;
+
+			int registerCount = endRegister-startRegister+1;
+			$outRegisters = registerCount;
+
+			TypeIdItem typeIdItem = $nonvoid_type_descriptor.type;
+
+			$instructions.add(new Instruction5rc(opcode, registerCount, startRegister, typeIdItem));
 		}
 	|	//e.g. .array-data 4 1000000 .end array-data
 		^(I_STATEMENT_ARRAY_DATA ^(I_ARRAY_ELEMENT_SIZE short_integral_literal) array_elements)
@@ -1335,12 +1437,12 @@ type_descriptor returns [TypeIdItem type]
 short_integral_literal returns[short value]
 	:	long_literal
 		{
-			literalTools.checkShort($long_literal.value);
+			LiteralTools.checkShort($long_literal.value);
 			$value = (short)$long_literal.value;
 		}
 	|	integer_literal
 		{
-			literalTools.checkShort($integer_literal.value);
+			LiteralTools.checkShort($integer_literal.value);
 			$value = (short)$integer_literal.value;
 		}
 	|	short_literal {$value = $short_literal.value;}
@@ -1350,7 +1452,7 @@ short_integral_literal returns[short value]
 integral_literal returns[int value]
 	:	long_literal
 		{
-			literalTools.checkInt($long_literal.value);
+			LiteralTools.checkInt($long_literal.value);
 			$value = (int)$long_literal.value;
 		}
 	|	integer_literal {$value = $integer_literal.value;}
@@ -1359,16 +1461,16 @@ integral_literal returns[int value]
 
 
 integer_literal returns[int value]
-	:	INTEGER_LITERAL { $value = literalTools.parseInt($INTEGER_LITERAL.text); };
+	:	INTEGER_LITERAL { $value = LiteralTools.parseInt($INTEGER_LITERAL.text); };
 
 long_literal returns[long value]
-	:	LONG_LITERAL { $value = literalTools.parseLong($LONG_LITERAL.text); };
+	:	LONG_LITERAL { $value = LiteralTools.parseLong($LONG_LITERAL.text); };
 
 short_literal returns[short value]
-	:	SHORT_LITERAL { $value = literalTools.parseShort($SHORT_LITERAL.text); };
+	:	SHORT_LITERAL { $value = LiteralTools.parseShort($SHORT_LITERAL.text); };
 
 byte_literal returns[byte value]
-	:	BYTE_LITERAL { $value = literalTools.parseByte($BYTE_LITERAL.text); };
+	:	BYTE_LITERAL { $value = LiteralTools.parseByte($BYTE_LITERAL.text); };
 
 float_literal returns[float value]
 	:	FLOAT_LITERAL { $value = parseFloat($FLOAT_LITERAL.text); };

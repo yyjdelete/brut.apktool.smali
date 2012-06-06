@@ -29,6 +29,8 @@
 package org.jf.baksmali.Adaptors;
 
 import org.jf.baksmali.Adaptors.Format.InstructionMethodItemFactory;
+import org.jf.dexlib.Code.Analysis.SyntheticAccessorResolver;
+import org.jf.dexlib.Code.InstructionWithReference;
 import org.jf.util.IndentingWriter;
 import org.jf.baksmali.baksmali;
 import org.jf.dexlib.*;
@@ -118,7 +120,7 @@ public class MethodDefinition {
             } else {
                 writer.write(".registers ");
             }
-            writer.printIntAsDec(getRegisterCount(encodedMethod));
+            writer.printSignedIntAsDec(getRegisterCount(encodedMethod));
             writer.write('\n');
             writeParameters(writer, codeItem, parameterAnnotations);
             if (annotationSet != null) {
@@ -133,6 +135,7 @@ public class MethodDefinition {
                 }
             }
         } else {
+            writeParameters(writer, codeItem, parameterAnnotations);
             if (annotationSet != null) {
                 AnnotationFormatter.writeTo(writer, annotationSet);
             }
@@ -237,8 +240,12 @@ public class MethodDefinition {
         int packedSwitchBaseAddress = this.packedSwitchMap.get(packedSwitchDataAddress, -1);
 
         if (packedSwitchBaseAddress == -1) {
-            throw new RuntimeException("Could not find the packed switch statement corresponding to the packed " +
-                    "switch data at address " + packedSwitchDataAddress);
+            Instruction[] instructions = encodedMethod.codeItem.getInstructions();
+            int index = instructionMap.get(packedSwitchDataAddress);
+
+            if (instructions[index].opcode == Opcode.NOP) {
+                packedSwitchBaseAddress = this.packedSwitchMap.get(packedSwitchDataAddress+2, -1);
+            }
         }
 
         return packedSwitchBaseAddress;
@@ -248,8 +255,12 @@ public class MethodDefinition {
         int sparseSwitchBaseAddress = this.sparseSwitchMap.get(sparseSwitchDataAddress, -1);
 
         if (sparseSwitchBaseAddress == -1) {
-            throw new RuntimeException("Could not find the sparse switch statement corresponding to the sparse " +
-                    "switch data at address " + sparseSwitchDataAddress);
+            Instruction[] instructions = encodedMethod.codeItem.getInstructions();
+            int index = instructionMap.get(sparseSwitchDataAddress);
+
+            if (instructions[index].opcode == Opcode.NOP) {
+                sparseSwitchBaseAddress = this.packedSwitchMap.get(sparseSwitchDataAddress+2, -1);
+            }
         }
 
         return sparseSwitchBaseAddress;
@@ -337,10 +348,25 @@ public class MethodDefinition {
                     @Override
                     public boolean writeTo(IndentingWriter writer) throws IOException {
                         writer.write("#@");
-                        writer.printLongAsHex(codeAddress & 0xFFFFFFFF);
+                        writer.printUnsignedLongAsHex(codeAddress & 0xFFFFFFFF);
                         return true;
                     }
                 });
+            }
+
+            if (!baksmali.noAccessorComments && (instruction instanceof InstructionWithReference)) {
+                if (instruction.opcode == Opcode.INVOKE_STATIC || instruction.opcode == Opcode.INVOKE_STATIC_RANGE) {
+                    MethodIdItem methodIdItem =
+                            (MethodIdItem)((InstructionWithReference) instruction).getReferencedItem();
+
+                    if (SyntheticAccessorResolver.looksLikeSyntheticAccessor(methodIdItem)) {
+                        SyntheticAccessorResolver.AccessedMember accessedMember =
+                                baksmali.syntheticAccessorResolver.getAccessedMember(methodIdItem);
+                        if (accessedMember != null) {
+                            methodItems.add(new SyntheticAccessCommentMethodItem(accessedMember, currentCodeAddress));
+                        }
+                    }
+                }
             }
 
             currentCodeAddress += instruction.getSize(currentCodeAddress);
@@ -348,7 +374,7 @@ public class MethodDefinition {
     }
 
     private void addAnalyzedInstructionMethodItems(List<MethodItem> methodItems) {
-        methodAnalyzer = new MethodAnalyzer(encodedMethod, baksmali.deodex);
+        methodAnalyzer = new MethodAnalyzer(encodedMethod, baksmali.deodex, baksmali.inlineResolver);
 
         methodAnalyzer.analyze();
 
@@ -400,7 +426,7 @@ public class MethodDefinition {
                     @Override
                     public boolean writeTo(IndentingWriter writer) throws IOException {
                         writer.write("#@");
-                        writer.printLongAsHex(codeAddress & 0xFFFFFFFF);
+                        writer.printUnsignedLongAsHex(codeAddress & 0xFFFFFFFF);
                         return true;
                     }
                 });

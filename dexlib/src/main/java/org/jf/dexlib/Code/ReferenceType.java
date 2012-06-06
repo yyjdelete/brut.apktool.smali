@@ -32,11 +32,17 @@ import org.jf.dexlib.*;
 
 public enum ReferenceType
 {
-    string,
-    type,
-    field,
-    method,
-    none;
+    string(-1),
+    type(0),
+    field(1),
+    method(2),
+    none(-1);
+
+    private int validationErrorReferenceType;
+
+    private ReferenceType(int validationErrorReferenceType) {
+        this.validationErrorReferenceType = validationErrorReferenceType;
+    }
 
     public boolean checkItem(Item item) {
         switch (this) {
@@ -48,9 +54,27 @@ public enum ReferenceType
                 return item instanceof FieldIdItem;
             case method:
                 return item instanceof MethodIdItem;
-            case none:
-                return item == null;
         }
         return false;
+    }
+
+    public static ReferenceType fromValidationErrorReferenceType(int validationErrorReferenceType) {
+        switch (validationErrorReferenceType) {
+            case 0:
+                return type;
+            case 1:
+                return field;
+            case 2:
+                return method;
+        }
+        return null;
+    }
+
+    public int getValidationErrorReferenceType() {
+        if (validationErrorReferenceType == -1) {
+            throw new RuntimeException("This reference type cannot be referenced from a throw-validation-error" +
+                    " instruction");
+        }
+        return validationErrorReferenceType;
     }
 }

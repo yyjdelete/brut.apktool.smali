@@ -30,6 +30,7 @@ package org.jf.dexlib.Code.Analysis;
 
 import org.jf.dexlib.*;
 
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -54,12 +55,17 @@ public class DeodexUtil {
         inlineMethodResolver = InlineMethodResolver.createInlineMethodResolver(this, odexHeader.version);
     }
 
+    public DeodexUtil(DexFile dexFile, InlineMethodResolver inlineMethodResolver) {
+        this.dexFile = dexFile;
+        this.inlineMethodResolver = inlineMethodResolver;
+    }
+
     public InlineMethod lookupInlineMethod(AnalyzedInstruction instruction) {
         return inlineMethodResolver.resolveExecuteInline(instruction);
     }
 
     public FieldIdItem lookupField(ClassPath.ClassDef classDef, int fieldOffset) {
-        String field = classDef.getInstanceField(fieldOffset);
+        ClassPath.FieldDef field = classDef.getInstanceField(fieldOffset);
         if (field == null) {
             return null;
         }
@@ -204,15 +210,10 @@ public class DeodexUtil {
         return null;
     }
 
-    private FieldIdItem parseAndResolveField(ClassPath.ClassDef classDef, String field) {
-        //expecting a string like someField:Lfield/type;
-        String[] parts = field.split(":");
-        if (parts.length != 2) {
-            throw new RuntimeException("Invalid field descriptor " + field);
-        }
-
-        String fieldName = parts[0];
-        String fieldType = parts[1];
+    private FieldIdItem parseAndResolveField(ClassPath.ClassDef classDef, ClassPath.FieldDef field) {
+        String definingClass = field.definingClass;
+        String fieldName = field.name;
+        String fieldType = field.type;
 
         StringIdItem fieldNameItem = StringIdItem.lookupStringIdItem(dexFile, fieldName);
         if (fieldNameItem == null) {
@@ -226,7 +227,17 @@ public class DeodexUtil {
 
         ClassPath.ClassDef fieldClass = classDef;
 
-        do {
+        ArrayList<ClassPath.ClassDef> parents = new ArrayList<ClassPath.ClassDef>();
+        parents.add(fieldClass);
+
+        while (fieldClass != null && !fieldClass.getClassType().equals(definingClass)) {
+            fieldClass = fieldClass.getSuperclass();
+            parents.add(fieldClass);
+        }
+
+        for (int i=parents.size()-1; i>=0; i--) {
+            fieldClass = parents.get(i);
+
             TypeIdItem classTypeItem = TypeIdItem.lookupTypeIdItem(dexFile, fieldClass.getClassType());
             if (classTypeItem == null) {
                 continue;
@@ -236,14 +247,11 @@ public class DeodexUtil {
             if (fieldIdItem != null) {
                 return fieldIdItem;
             }
-
-            fieldClass = fieldClass.getSuperclass();
-        } while (fieldClass != null);
-
+        }
         return null;
     }
 
-    public class InlineMethod {
+    public static class InlineMethod {
         public final int methodType;
         public final String classType;
         public final String methodName;
@@ -261,17 +269,17 @@ public class DeodexUtil {
             this.returnType = returnType;
         }
 
-        public MethodIdItem getMethodIdItem() {
+        public MethodIdItem getMethodIdItem(DeodexUtil deodexUtil) {
             if (methodIdItem == null) {
-                loadMethod();
+                loadMethod(deodexUtil);
             }
             return methodIdItem;
         }
 
-        private void loadMethod() {
+        private void loadMethod(DeodexUtil deodexUtil) {
             ClassPath.ClassDef classDef = ClassPath.getClassDef(classType);
 
-            this.methodIdItem = parseAndResolveMethod(classDef, methodName, parameters, returnType);
+            this.methodIdItem = deodexUtil.parseAndResolveMethod(classDef, methodName, parameters, returnType);
         }
 
         public String getMethodString() {

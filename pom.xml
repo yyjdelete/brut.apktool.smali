@@ -4,10 +4,10 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>brut.apktool.smali</groupId>
     <artifactId>smali-pom</artifactId>
-    <version>1.0-brut1</version>
+    <version>1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <properties>
-        <aversion>1.2.6-brut6-SNAPSHOT</aversion>
+        <aversion>1.3.3-dev</aversion>
     </properties>
     <build>
         <plugins>
@@ -33,8 +33,9 @@
         <module>dexlib</module>
         <module>smali</module>
         <module>baksmali</module>
-	<module>util</module>
+        <module>util</module>
         <module>maven-smali-plugin</module>
+        <module>smali-integration-tests</module>
     </modules>
 
     <distributionManagement>
