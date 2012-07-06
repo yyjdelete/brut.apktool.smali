@@ -12,48 +12,6 @@
     </parent>
     <build>
         <plugins>
-            <!--<plugin>
-                <groupId>org.jf</groupId>
-                <artifactId>maven-smali-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>junit-tests</id>
-                        <phase>test-compile</phase>
-                        <goals>
-                            <goal>assemble</goal>
-                        </goals>
-                        <configuration>
-                            <sourceDirectory>src/test/smali</sourceDirectory>
-                            <outputFile>target/test/classes.dex</outputFile>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>exec-maven-plugin</artifactId>
-                <version>1.1</version>
-                <executions>
-                    <execution>
-                        <phase>test</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                    </execution>
-                </executions>
-                <configuration>
-                    <executable>java</executable>
-                    <workingDirectory>${basedir}</workingDirectory>
-                    <arguments>
-                        <argument>-classpath</argument>
-                        <classpath/>
-                        <argument>org.jf.baksmali.main</argument>
-                        <argument>-dis</argument>
-                        <argument>${project.build.directory}/test/classes.dex</argument>
-                        <argument>${project.build.directory}/test/out</argument>
-                    </arguments>
-                </configuration>
-            </plugin>-->
             <plugin>
                 <artifactId>maven-assembly-plugin</artifactId>
                 <configuration>
@@ -66,6 +24,60 @@
                         </manifest>
                     </archive>
                 </configuration>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>com.github.wvengen</groupId>
+                <artifactId>proguard-maven-plugin</artifactId>
+                <version>2.0.5</version>
+                <executions>
+                   <execution>
+                       <phase>package</phase>
+                       <goals>
+                           <goal>proguard</goal>
+                       </goals>
+                   </execution>
+                </executions>
+                <configuration>
+                    <proguardVersion>4.8</proguardVersion>
+                    <obfuscate>false</obfuscate>
+                    <includeDependency>false</includeDependency>
+                    <injar>${project.build.finalName}-jar-with-dependencies.jar</injar>
+                    <outjar>${project.build.finalName}-jar-with-dependencies-small.jar</outjar>
+                    <outputDirectory>${project.build.directory}</outputDirectory>
+                    <options>
+                        <option>-keep public class org.jf.baksmali.main {
+                            public static void main(java.lang.String[]);
+                        }</option>
+                        <option>-keepclassmembers enum * {
+                            public static **[] values();
+                            public static ** valueOf(java.lang.String);
+                        }</option>
+                        <option>-dontwarn junit.**</option>
+                        <option>-dontnote junit.**</option>
+                        <option>-dontwarn org.junit.**</option>
+                        <option>-dontnote org.junit.**</option>
+                        <option>-dontwarn com.google.common.base.**</option>
+                        <option>-dontnote com.google.common.base.**</option>
+                    </options>
+                    <libs>
+                        <lib>${java.home}/lib/rt.jar</lib>
+                    </libs>
+                </configuration>
+                <dependencies>
+                    <dependency>
+                        <groupId>net.sf.proguard</groupId>
+                        <artifactId>proguard-base</artifactId>
+                        <version>4.8</version>
+                    </dependency>
+                </dependencies>
             </plugin>
         </plugins>
         <resources>

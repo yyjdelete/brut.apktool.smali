@@ -31,7 +31,7 @@ package org.jf.dexlib;
 import org.jf.dexlib.Util.AnnotatedOutput;
 import org.jf.dexlib.Util.Input;
 
-public class FieldIdItem extends Item<FieldIdItem> {
+public class FieldIdItem extends Item<FieldIdItem> implements Convertible<FieldIdItem> {
     private int hashCode = 0;
 
     private TypeIdItem classType;
@@ -201,6 +201,25 @@ public class FieldIdItem extends Item<FieldIdItem> {
         return cachedFieldString;
     }
 
+    String cachedShortFieldString = null;
+    /**
+     * @return a "short" string containing just the field name and type, formatted like fieldName:fieldType
+     */
+    public String getShortFieldString() {
+        if (cachedShortFieldString == null) {
+            String fieldName = this.fieldName.getStringValue();
+            String fieldType = this.fieldType.getTypeDescriptor();
+
+            StringBuffer sb = new StringBuffer(fieldName.length() + fieldType.length() + 1);
+            sb.append(fieldName);
+            sb.append(":");
+            sb.append(fieldType);
+            cachedShortFieldString = sb.toString();
+        }
+        return cachedShortFieldString;
+    }
+
+
     /**
      * calculate and cache the hashcode
      */
@@ -236,5 +255,9 @@ public class FieldIdItem extends Item<FieldIdItem> {
         return (classType == other.classType &&
                 fieldType == other.fieldType &&
                 fieldName == other.fieldName);
+    }
+
+    public FieldIdItem convert() {
+        return this;
     }
 }
